@@ -1,73 +1,79 @@
 import numpy as np
-import random
 import tensorflow as tf
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 
-def generate_random_vector():
-    random_number = random.randint(10, 100)
-    print(f"Generated random number: {random_number}")
-    vector = list(range(1, random_number+1))
-    return vector
-
-
-def fibonacci(n):
-    if n<=0:
+def fibonacci(n, memo={}):
+    if n in memo:
+        return memo[n]
+    if n <= 0:
         return 0
-    elif n== 1:
+    elif n == 1:
         return 1
-    else:
-        a, b = 0, 1
-        for _ in range(n-1):
-            a, b = b, a+b
-        return b
-def vector_fibonacci(numbers):
-    return[fibonacci(num) for num in numbers]
+    memo[n] = fibonacci(n-1, memo) + fibonacci(n-2, memo)
+    return memo[n]
 
-def split_list(list):
-    split_index = round(len(list)*0.6)
-    training_set = list[:split_index]
-    test_set = list[split_index:]
-    return training_set, test_set
+def generate_dataset(min_num=1, max_num=30, size=10000):
+    numbers = np.random.randint(min_num, max_num+1, size=size)
+    fib_numbers = np.array([fibonacci(n) for n in numbers], dtype=np.float32)
+  
+    fib_numbers = np.log(fib_numbers + 1e-8)
+    
+    return numbers.reshape(-1, 1), fib_numbers
 
-def train_model(xs):
-    xs = np.array(xs, dtype=np.int64)
-    ys = np.array(vector_fibonacci(xs), dtype=np.int64)
-    model = Sequential([Dense(units=1, input_shape=[1])])
+def create_model():
+    model = Sequential([
+        Dense(64, activation='relu', input_shape=[1]),
+        Dropout(0.1),
+        Dense(32, activation='relu'),
+        Dense(16, activation='relu'),
+        Dense(1)
+    ])
+    
     model.compile(
-        optimizer='sgd',
-        loss='mean_squared_error'
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+        loss='mse',
+        metrics=['mae']
     )
-    model.fit(ys, xs, epochs=2)
     return model
 
-def test_model(test_set, model):
-    correct = 0
-    total = len(test_set)
-
-    for element in test_set:
-        model_output = model.predict(np.array([[element]]))[0][0]
-        fibonacci_number = fibonacci(element)
-        if abs(model_output - fibonacci_number) <= 0.1:
-            correct = correct+1
-        else:
-            print(f" Failed!  number:{element}, fibonacci:{fibonacci_number}, model's output:{model_output}")
-    accuracy = (correct/total)*100
-    print(f"correct={correct}  and total={total}")
-    print(f"model's acuracy: {accuracy:.2f}%")
-    return accuracy
-   
+def main():
+    X, y = generate_dataset(max_num=30)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
 
+    model = create_model()
+    
+    early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    
+    history = model.fit(
+        X_train_scaled, y_train,
+        validation_split=0.2,
+        epochs=200,
+        batch_size=32,
+        callbacks=[early_stop],
+        verbose=1
+    )
 
+    test_loss, test_mae = model.evaluate(X_test_scaled, y_test, verbose=0)
+    print(f"\nTest MAE: {test_mae:.4f} (in log space)")
+ 
+    test_numbers = np.array([[5], [10], [15], [20], [25], [30]])
+    test_numbers_scaled = scaler.transform(test_numbers)
+    
+    predictions = model.predict(test_numbers_scaled)
+    predictions = np.exp(predictions) - 1e-8 
+    
+    print("\nPrediction Examples:")
+    for num, pred in zip(test_numbers, predictions):
+        actual = fibonacci(num[0])
+        print(f"Input: {num[0]}, Predicted: {pred[0]:.1f}, Actual: {actual}, Difference: {abs(pred[0]-actual)/actual*100:.1f}%")
 
-generated_vector = generate_random_vector()
-training_set, test_set = split_list(generated_vector)
-xs =  training_set # np.array(training_set, dtype=np.int64)
-ys = vector_fibonacci(xs)   # np.array(vector_fibonacci(xs), dtype=np.int64)
-
-model = train_model(xs)
-test_model(test_set, model)
-
-
-
+if __name__ == "__main__":
+c    main()
